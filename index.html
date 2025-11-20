@@ -5,11 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Logseq Graph Manager</title>
     
-    <!-- Utilities -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <!-- Markdown Renderer & Syntax Highlighting -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet" />
     <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
@@ -44,6 +42,14 @@
         .sidebar-controls { display: flex; gap: 5px; margin-bottom: 5px; }
         .mini-btn { font-size: 0.7rem; padding: 4px 8px; border: 1px solid var(--border); background: transparent; color: var(--text-main); border-radius: 4px; cursor: pointer; }
         .mini-btn:hover { background: var(--hover-item); border-color: var(--primary); }
+        
+        /* NEW: Search Box */
+        .search-box {
+            width: 100%; padding: 6px 10px; margin-top: 8px;
+            border: 1px solid var(--border); background: var(--main-bg);
+            color: var(--text-main); border-radius: 4px; font-size: 0.85rem;
+        }
+        .search-box:focus { outline: none; border-color: var(--primary); }
         
         .file-list { flex-grow: 1; overflow-y: auto; padding: 0.5rem; }
         .file-item { display: flex; align-items: center; padding: 6px 8px; border-radius: 4px; cursor: pointer; border-bottom: 1px solid transparent; user-select: none; }
@@ -162,7 +168,8 @@
             <button class="mini-btn" onclick="window.selectMDOnly()">MD</button>
             <button class="mini-btn" onclick="window.selectAssetsOnly()">Assets</button>
         </div>
-        <div style="font-size: 0.75rem; color: var(--text-sub);" id="selectionCount">0 files selected</div>
+        <input type="text" id="fileSearch" class="search-box" placeholder="Search files...">
+        <div style="font-size: 0.75rem; color: var(--text-sub); margin-top: 5px;" id="selectionCount">0 files selected</div>
     </div>
     <div class="file-list" id="fileList">
         <div style="padding: 20px; text-align: center; color: var(--text-sub); font-size: 0.9rem;">Waiting for folder...</div>
@@ -189,7 +196,6 @@
                 <span style="font-size: 1.5rem;">📁 Load Graph Folder</span><br>
                 <span style="color: var(--text-sub)">Select /pages and /assets</span>
             </div>
-            <!-- Update: Allow selecting directory OR multiple files -->
             <input type="file" id="fileInput" webkitdirectory directory multiple>
         </div>
         <button id="convertBtn" class="btn-primary" disabled>Select Folder First</button>
@@ -473,6 +479,16 @@
     document.getElementById('convertBtn').addEventListener('click', async () => {
         const indices = validFiles.map((_, i) => i).filter(i => document.getElementById(`chk-${i}`).checked);
         if (!indices.length) return;
+
+        // NEW: Single File Prompt
+        if (indices.length === 1) {
+            const file = validFiles[indices[0]];
+            if (file.name.endsWith('.md')) {
+                const proceed = confirm(`You have selected only one file: "${file.name}".\n\nIf this page contains images or diagrams, they may not display correctly unless you link (upload) the corresponding "assets" folder.\n\nDo you want to proceed without assets?`);
+                if (!proceed) return;
+            }
+        }
+
         document.getElementById('consoleWrapper').style.display = 'flex';
         document.getElementById('convertBtn').disabled = true;
         const zip = new JSZip();
@@ -522,6 +538,16 @@
     window.toggleSelectAll = (s) => { validFiles.forEach((_, i) => document.getElementById(`chk-${i}`).checked = s); updateSelectionLabel(); };
     window.selectMDOnly = () => { validFiles.forEach((f, i) => document.getElementById(`chk-${i}`).checked = f.name.endsWith('.md')); updateSelectionLabel(); };
     window.selectAssetsOnly = () => { validFiles.forEach((f, i) => document.getElementById(`chk-${i}`).checked = !f.name.endsWith('.md')); updateSelectionLabel(); };
+    
+    // NEW: Search Listener
+    document.getElementById('fileSearch').addEventListener('input', (e) => {
+        const term = e.target.value.toLowerCase();
+        document.querySelectorAll('.file-item').forEach(item => {
+            const name = item.querySelector('.file-name').innerText.toLowerCase();
+            item.style.display = name.includes(term) ? 'flex' : 'none';
+        });
+    });
+
     window.closeViewer = () => { document.getElementById('viewFile').style.display = 'none'; document.getElementById('viewDashboard').style.display = 'flex'; };
 
     async function openViewer(index) {
