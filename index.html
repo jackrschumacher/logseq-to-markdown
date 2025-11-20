@@ -9,8 +9,6 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <link rel="icon" type="image/x-icon" href="favicon.ico">
-    
     <!-- Markdown Renderer & Syntax Highlighting -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet" />
@@ -73,6 +71,8 @@
 
         .upload-box { border: 2px dashed var(--border); background: var(--sidebar-bg); border-radius: 8px; padding: 3rem; text-align: center; cursor: pointer; position: relative; margin-bottom: 2rem; }
         .upload-box:hover { border-color: var(--primary); }
+        
+        /* Updated Input to accept both files and folders if browser supports, otherwise fallback */
         .upload-box input { position: absolute; top:0; left:0; width:100%; height:100%; opacity:0; cursor:pointer; }
         
         /* LAYOUT FIX: PREVENT OVERLAP */
@@ -189,6 +189,7 @@
                 <span style="font-size: 1.5rem;">📁 Load Graph Folder</span><br>
                 <span style="color: var(--text-sub)">Select /pages and /assets</span>
             </div>
+            <!-- Update: Allow selecting directory OR multiple files -->
             <input type="file" id="fileInput" webkitdirectory directory multiple>
         </div>
         <button id="convertBtn" class="btn-primary" disabled>Select Folder First</button>
@@ -407,9 +408,20 @@
     fileInput.addEventListener('change', (e) => {
         const raw = Array.from(e.target.files);
         validFiles = raw.filter(f => {
+            // Simple filter: Ignore .git or .github or .obsidian folders etc.
             const path = f.webkitRelativePath;
+            // If uploading single files, webkitRelativePath might be empty, so check name
+            if (!path) {
+                return !f.name.startsWith('.'); 
+            }
             return !path.includes('/.git/') && !path.includes('/.github/') && !path.includes('/logseq/') && !path.includes('/bak/') && !f.name.startsWith('.');
-        }).sort((a, b) => a.webkitRelativePath.localeCompare(b.webkitRelativePath));
+        }).sort((a, b) => {
+            // Sort by name for flat files, or path for folders
+            const p1 = a.webkitRelativePath || a.name;
+            const p2 = b.webkitRelativePath || b.name;
+            return p1.localeCompare(p2);
+        });
+        
         renderFileList();
         document.getElementById('uploadText').innerHTML = `✅ <b>${validFiles.length}</b> Valid Files`;
         document.getElementById('convertBtn').innerText = "Process";
@@ -432,7 +444,9 @@
             checkbox.addEventListener('change', updateSelectionLabel);
             const nameSpan = document.createElement('span');
             nameSpan.className = 'file-name';
-            nameSpan.innerText = file.webkitRelativePath.split('/').slice(1).join('/');
+            // If webkitRelativePath is empty (single file upload), use name
+            const displayPath = file.webkitRelativePath ? file.webkitRelativePath.split('/').slice(1).join('/') : file.name;
+            nameSpan.innerText = displayPath || file.name;
             const typeSpan = document.createElement('span');
             typeSpan.className = 'file-type';
             typeSpan.innerText = file.name.split('.').pop().toUpperCase();
@@ -469,7 +483,9 @@
         for (let i = 0; i < indices.length; i++) {
             const idx = indices[i];
             const file = validFiles[idx];
-            const relative = file.webkitRelativePath.split('/').slice(1).join('/');
+            // If single file upload, relative path is just name
+            const relative = file.webkitRelativePath ? file.webkitRelativePath.split('/').slice(1).join('/') : file.name;
+            
             document.getElementById('progressBar').style.width = Math.round(((i+1)/indices.length)*100) + "%";
             
             const ext = file.name.split('.').pop().toLowerCase() || "unknown";
