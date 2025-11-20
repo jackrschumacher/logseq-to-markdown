@@ -1,0 +1,708 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Logseq Graph Manager</title>
+    
+    <!-- Utilities -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <style>
+        /* --- CSS STYLES --- */
+        :root {
+            --primary: #6366f1; --bg: #f1f5f9; --sidebar-bg: #ffffff; --main-bg: #f8fafc;
+            --text-main: #334155; --text-sub: #64748b; --border: #e2e8f0;
+            --hover-item: #f1f5f9; --active-item: #e0e7ff;
+            --console-bg: #1e293b; --console-text: #f1f5f9;
+            --tag-md: #818cf8; --tag-asset: #34d399; --tag-err: #ef4444;
+        }
+        [data-theme="dark"] {
+            --bg: #020617; --sidebar-bg: #0f172a; --main-bg: #1e293b;
+            --text-main: #f1f5f9; --text-sub: #94a3b8; --border: #334155;
+            --hover-item: #1e293b; --active-item: #1e293b; --console-bg: #020617;
+        }
+        * { box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, monospace; background: var(--bg); color: var(--text-main); margin: 0; height: 100vh; display: flex; overflow: hidden; }
+        
+        .app-sidebar { width: 320px; background: var(--sidebar-bg); border-right: 1px solid var(--border); display: flex; flex-direction: column; flex-shrink: 0; }
+        .app-main { flex-grow: 1; background: var(--main-bg); display: flex; flex-direction: column; position: relative; overflow: hidden; }
+        
+        .sidebar-header { padding: 1rem; border-bottom: 1px solid var(--border); }
+        .sidebar-controls { display: flex; gap: 5px; margin-bottom: 5px; }
+        .mini-btn { font-size: 0.7rem; padding: 4px 8px; border: 1px solid var(--border); background: transparent; color: var(--text-main); border-radius: 4px; cursor: pointer; }
+        .mini-btn:hover { background: var(--hover-item); border-color: var(--primary); }
+        
+        .file-list { flex-grow: 1; overflow-y: auto; padding: 0.5rem; }
+        .file-item { display: flex; align-items: center; padding: 6px 8px; border-radius: 4px; cursor: pointer; border-bottom: 1px solid transparent; user-select: none; }
+        .file-item:hover { background: var(--hover-item); }
+        .file-item.active { background: var(--active-item); border-left: 3px solid var(--primary); }
+        .file-checkbox { margin-right: 10px; cursor: pointer; transform: scale(1.1); }
+        .file-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-grow: 1; font-size: 0.85rem; }
+        .file-type { font-size: 0.65rem; opacity: 0.7; font-weight: bold; margin-left: 5px;}
+
+        .view-dashboard { padding: 2rem; display: flex; flex-direction: column; height: 100%; overflow-y: auto; }
+        .header-row { display: flex; justify-content: center; align-items: center; margin-bottom: 1.5rem; position: relative; }
+        
+        .app-title { margin: 0; font-size: 1.5rem; display: flex; align-items: center; gap: 10px; }
+        .app-title svg { width: 24px; height: 24px; color: var(--primary); }
+
+        /* --- STATS PILL STYLE --- */
+        .stats-container { display: flex; justify-content: center; margin-bottom: 2rem; }
+        .stats-pill {
+            background-color: var(--sidebar-bg);
+            border: 1px solid var(--border);
+            color: var(--text-sub);
+            padding: 8px 20px;
+            border-radius: 50px;
+            font-size: 0.85rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.03);
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            user-select: none;
+        }
+        .stats-pill:hover {
+            border-color: var(--primary);
+            color: var(--primary);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.15);
+        }
+
+        .upload-box { border: 2px dashed var(--border); background: var(--sidebar-bg); border-radius: 8px; padding: 3rem; text-align: center; cursor: pointer; position: relative; margin-bottom: 2rem; }
+        .upload-box:hover { border-color: var(--primary); }
+        .upload-box input { position: absolute; top:0; left:0; width:100%; height:100%; opacity:0; cursor:pointer; }
+        .btn-primary { background: var(--primary); color: white; border: none; padding: 1rem 2rem; border-radius: 6px; font-weight: bold; cursor: pointer; width: 100%; font-size: 1rem; }
+        .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .console-wrapper { background: var(--console-bg); border-radius: 8px; overflow: hidden; margin-top: 2rem; display: none; flex-grow: 1; min-height: 200px; flex-direction: column; }
+        .stats-bar { background: rgba(255,255,255,0.05); color: #e2e8f0; padding: 10px 15px; font-size: 0.8rem; display: flex; gap: 15px; border-bottom: 1px solid #334155; }
+        .log-window { flex-grow: 1; overflow-y: auto; padding: 10px; font-family: monospace; font-size: 0.8rem; color: var(--console-text); }
+        .log-row { display: flex; padding: 3px 0; border-bottom: 1px solid rgba(255,255,255,0.05); cursor: help; }
+        .log-row:hover { background: rgba(255,255,255,0.1); }
+        .tag { width: 60px; font-weight: bold; flex-shrink: 0; }
+        .tag.md { color: var(--tag-md); } .tag.asset { color: var(--tag-asset); } .tag.err { color: var(--tag-err); }
+
+        .view-file { display: none; flex-direction: column; height: 100%; background: var(--main-bg); }
+        .viewer-toolbar { padding: 10px 20px; border-bottom: 1px solid var(--border); background: var(--sidebar-bg); display: flex; justify-content: space-between; align-items: center; }
+        .viewer-content { flex-grow: 1; overflow: auto; padding: 2rem; }
+        .code-block { font-family: 'Courier New', monospace; font-size: 0.9rem; white-space: pre-wrap; color: var(--text-main); max-width: 900px; margin: 0 auto; }
+        .image-preview-container img { max-width: 100%; max-height: 80vh; box-shadow: 0 4px 10px rgba(0,0,0,0.2); border-radius: 4px; }
+
+        /* --- FLOATING THEME BUTTON --- */
+        #themeToggle {
+            position: fixed; bottom: 20px; right: 20px;
+            width: 50px; height: 50px; border-radius: 50%;
+            background-color: var(--sidebar-bg); border: 1px solid var(--border);
+            color: var(--text-main); display: flex; align-items: center;
+            justify-content: center; cursor: pointer;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.15); transition: 0.3s; z-index: 999; padding: 0;
+        }
+        #themeToggle:hover { transform: scale(1.1); border-color: var(--primary); }
+        #themeToggle svg { width: 24px; height: 24px; fill: currentColor; }
+
+        /* --- PREVIEW TOOLTIP --- */
+        #previewTooltip {
+            position: fixed; display: none; background: #1e1e1e; color: #e0e0e0;
+            border: 1px solid #444; padding: 10px; border-radius: 6px;
+            font-family: monospace; font-size: 0.7rem; max-width: 400px; max-height: 300px;
+            overflow: hidden; z-index: 1000; box-shadow: 0 10px 20px rgba(0,0,0,0.5);
+            pointer-events: none; white-space: pre-wrap;
+        }
+        #previewTooltip img { max-width: 100%; max-height: 200px; display: block; border-radius: 4px; }
+
+        /* --- MODAL --- */
+        .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: none; justify-content: center; align-items: center; z-index: 100; backdrop-filter: blur(4px); }
+        .modal { background: var(--sidebar-bg); padding: 2rem; border-radius: 12px; max-width: 800px; width: 95%; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); border: 1px solid var(--border); color: var(--text-main); animation: popIn 0.2s ease-out; max-height: 90vh; overflow-y: auto; }
+        @keyframes popIn { from { transform: scale(0.95); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+        .stats-table { width: 100%; border-collapse: collapse; margin: 1.5rem 0; font-size: 0.9rem; }
+        .stats-table th { text-align: left; border-bottom: 2px solid var(--border); padding: 8px; color: var(--text-sub); text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em; }
+        .stats-table td { border-bottom: 1px solid var(--border); padding: 8px; }
+        .modal-actions { display: flex; justify-content: flex-end; gap: 10px; }
+        
+        .chart-container { height: 300px; width: 100%; margin-bottom: 30px; position: relative; }
+        h3 { margin-top: 0; margin-bottom: 10px; }
+        .chart-title { font-size: 0.9rem; font-weight: bold; text-align: center; color: var(--text-sub); margin-bottom: 10px; text-transform: uppercase; letter-spacing: 1px; }
+        
+        /* Summary Grid in Modal */
+        .summary-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-bottom: 25px; text-align: center; }
+        .summary-card { background: var(--hover-item); padding: 15px; border-radius: 8px; border: 1px solid var(--border); }
+        .summary-val { font-size: 1.4rem; font-weight: 800; color: var(--primary); display: block; }
+        .summary-lbl { font-size: 0.7rem; opacity: 0.7; font-weight: bold; letter-spacing: 1px; text-transform: uppercase; }
+
+        /* Current Session Section (Important: Sits above charts) */
+        #currentSessionSummary {
+            margin-bottom: 25px; padding: 20px; background: var(--hover-item); border-radius: 10px; border: 1px solid var(--border);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05); display: none;
+        }
+        .session-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+        .session-title { font-weight: 800; font-size: 1.1rem; color: var(--primary); margin: 0; }
+    </style>
+</head>
+<body>
+
+<div class="app-sidebar">
+    <div class="sidebar-header">
+        <strong class="sidebar-title">Graph Manager</strong>
+        <div class="sidebar-controls">
+            <button class="mini-btn" onclick="window.toggleSelectAll(true)">All</button>
+            <button class="mini-btn" onclick="window.toggleSelectAll(false)">None</button>
+            <button class="mini-btn" onclick="window.selectMDOnly()">MD</button>
+            <button class="mini-btn" onclick="window.selectAssetsOnly()">Assets</button> <!-- NEW -->
+        </div>
+        <div style="font-size: 0.75rem; color: var(--text-sub);" id="selectionCount">0 files selected</div>
+    </div>
+    <div class="file-list" id="fileList">
+        <div style="padding: 20px; text-align: center; color: var(--text-sub); font-size: 0.9rem;">Waiting for folder...</div>
+    </div>
+</div>
+
+<div class="app-main">
+    <div id="viewDashboard" class="view-dashboard">
+        
+        <div class="header-row">
+            <h2 class="app-title">
+                Logseq Converter 
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/></svg>
+            </h2>
+        </div>
+
+        <!-- THE PILL STATS BADGE -->
+        <div class="stats-container">
+            <div id="globalStatsPill" class="stats-pill" onclick="window.openStatsModal()" title="Click to view details">
+                Loading stats...
+            </div>
+        </div>
+
+        <div class="upload-box" id="uploadBox">
+            <div id="uploadText">
+                <span style="font-size: 1.5rem;">📁 Load Graph Folder</span><br>
+                <span style="color: var(--text-sub)">Select /pages and /assets</span>
+            </div>
+            <input type="file" id="fileInput" webkitdirectory directory multiple>
+        </div>
+        <button id="convertBtn" class="btn-primary" disabled>Select Folder First</button>
+        <div class="console-wrapper" id="consoleWrapper">
+            <div class="stats-bar">
+                <span>MD: <b id="countMD" style="color:var(--tag-md)">0</b></span>
+                <span>Assets: <b id="countAsset" style="color:var(--tag-asset)">0</b></span>
+                <span style="margin-left:auto" id="statusState">Idle</span>
+            </div>
+            <div style="height: 4px; width: 0%; background: var(--primary); transition: width 0.1s;" id="progressBar"></div>
+            <div class="log-window" id="consoleLog"></div>
+        </div>
+    </div>
+
+    <div id="viewFile" class="view-file">
+        <div class="viewer-toolbar">
+            <strong id="viewerFilename">Filename.md</strong>
+            <button class="mini-btn" onclick="window.closeViewer()">✖ Close (Esc)</button>
+        </div>
+        <div id="viewerContent" class="viewer-content"></div>
+    </div>
+</div>
+
+<!-- FLOATING THEME TOGGLE -->
+<button id="themeToggle" title="Toggle Theme">
+    <svg id="sunIcon" viewBox="0 0 24 24" style="display:none;">
+        <path d="M12 7c-2.76 0-5 2.24-5 5s2.24 5 5 5 5-2.24 5-5-2.24-5-5-5zM2 13h2c.55 0 1-.45 1-1s-.45-1-1-1H2c-.55 0-1 .45-1 1s.45 1 1 1zm18 0h2c.55 0 1-.45 1-1s-.45-1-1-1h-2c-.55 0-1 .45-1 1s.45 1 1 1zM11 2v2c0 .55.45 1 1 1s1-.45 1-1V2c0-.55-.45-1-1-1s-1 .45-1 1zm0 18v2c0 .55.45 1 1 1s1-.45 1-1v-2c0-.55-.45-1-1-1s-1 .45-1 1zM5.99 4.58c-.39-.39-1.03-.39-1.41 0-.39.39-.39 1.03 0 1.41l1.06 1.06c.39.39 1.03.39 1.41 0s.39-1.03 0-1.41L5.99 4.58zm12.37 12.37c-.39-.39-1.03-.39-1.41 0-.39.39-.39 1.03 0 1.41l1.06 1.06c.39.39 1.03.39 1.41 0 .39-.39.39-1.03 0-1.41l-1.06-1.06zm1.06-10.96c.39-.39.39-1.03 0-1.41-.39-.39-1.03-.39-1.41 0l-1.06 1.06c-.39.39-.39 1.03 0 1.41s1.03.39 1.41 0l1.06-1.06zM7.05 18.36c.39-.39.39-1.03 0-1.41-.39-.39-1.03-.39-1.41 0l-1.06 1.06c-.39.39-.39 1.03 0 1.41s1.03.39 1.41 0l1.06-1.06z"/>
+    </svg>
+    <svg id="moonIcon" viewBox="0 0 24 24">
+        <path d="M12 3c-4.97 0-9 4.03-9 9s4.03 9 9 9 9-4.03 9-9c0-.46-.04-.92-.1-1.36-.98 1.37-2.58 2.26-4.4 2.26-3.03 0-5.5-2.47-5.5-5.5 0-1.82.89-3.42 2.26-4.4-.44-.06-.9-.1-1.36-.1z"/>
+    </svg>
+</button>
+
+<!-- Results Modal -->
+<div id="resultsModal" class="modal-overlay">
+    <div class="modal">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+            <h3 style="margin:0">Statistics</h3>
+            <button class="mini-btn" onclick="window.closeStatsModal()">Close</button>
+        </div>
+
+        <!-- Current Session Summary (Moved to Top) -->
+        <div id="currentSessionSummary">
+            <div class="session-header">
+                <h4 class="session-title">Download Summary</h4>
+                <span id="resultsSummaryText">...</span>
+            </div>
+            <table class="stats-table">
+                <thead><tr><th>File Type</th><th>Count</th><th>Total Size</th></tr></thead>
+                <tbody id="resultsBody"></tbody>
+            </table>
+        </div>
+
+        <!-- Global Summary -->
+        <div class="summary-grid">
+            <div class="summary-card">
+                <span class="summary-val" id="modalTotalFiles">...</span>
+                <span class="summary-lbl">Files Converted</span>
+            </div>
+            <div class="summary-card">
+                <span class="summary-val" id="modalTotalSize">...</span>
+                <span class="summary-lbl">Data Processed</span>
+            </div>
+            <div class="summary-card">
+                <span class="summary-val" id="modalTotalSessions">...</span>
+                <span class="summary-lbl">Conversions</span>
+            </div>
+        </div>
+        
+        <div class="chart-title">Files Per Month</div>
+        <div class="chart-container">
+            <canvas id="countChart"></canvas>
+        </div>
+
+        <div class="chart-title">Data Volume Per Month</div>
+        <div class="chart-container">
+            <canvas id="sizeChart"></canvas>
+        </div>
+    </div>
+</div>
+
+<!-- Tooltip -->
+<div id="previewTooltip"></div>
+
+<script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-app.js";
+    import { getDatabase, ref, push, runTransaction, onValue, get, child } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-database.js";
+
+    // --- CONFIGURATION ---
+    const firebaseConfig = {
+        apiKey: "AIzaSyBP7hX_sRL5AaBomYeEbZXatJh58ggwVAQ",
+        authDomain: "logseq-to-md.firebaseapp.com",
+        databaseURL: "https://logseq-to-md-default-rtdb.firebaseio.com",
+        projectId: "logseq-to-md",
+        storageBucket: "logseq-to-md.firebasestorage.app",
+        messagingSenderId: "716854249402",
+        appId: "1:716854249402:web:e6c442f197d3e6dd07bf83"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+
+    // --- HELPER: FORMAT BYTES ---
+    function formatBytes(bytes, decimals = 1) {
+        if (!bytes) return '0 B';
+        const k = 1024;
+        const dm = decimals < 0 ? 0 : decimals;
+        const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+    }
+
+    // --- GLOBAL STATS LISTENER (UPDATES PILL & MODAL) ---
+    const globalStatsRef = ref(db, 'global_stats');
+    onValue(globalStatsRef, (snapshot) => {
+        const data = snapshot.val() || { total_files: 0, total_size: 0, total_sessions: 0 };
+        
+        // Update Pill
+        const pill = document.getElementById('globalStatsPill');
+        if(pill) {
+            pill.innerText = `Total: ${data.total_files.toLocaleString()} files • ${formatBytes(data.total_size)} processed • ${data.total_sessions.toLocaleString()} conversions`;
+        }
+
+        // Update Modal
+        const fileEl = document.getElementById('modalTotalFiles');
+        const sizeEl = document.getElementById('modalTotalSize');
+        const sessEl = document.getElementById('modalTotalSessions');
+        if(fileEl) fileEl.innerText = data.total_files.toLocaleString();
+        if(sizeEl) sizeEl.innerText = formatBytes(data.total_size);
+        if(sessEl) sessEl.innerText = data.total_sessions.toLocaleString();
+    });
+
+    // --- UPDATE STATS (WRITE) ---
+    async function updateGlobalStats(fileTypeStats, totalSize, count) {
+        try {
+            await push(ref(db, 'conversions'), {
+                timestamp: new Date().toISOString(),
+                total_files: count,
+                total_size: totalSize,
+                // REMOVED: platform: navigator.platform
+            });
+
+            await runTransaction(globalStatsRef, (current) => {
+                if (!current) return { total_files: count, total_size: totalSize, total_sessions: 1 };
+                return {
+                    total_files: (current.total_files || 0) + count,
+                    total_size: (current.total_size || 0) + totalSize,
+                    total_sessions: (current.total_sessions || 0) + 1
+                };
+            });
+
+            const today = new Date();
+            const monthKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+            const monthlyRef = ref(db, `monthly_stats/${monthKey}`);
+
+            await runTransaction(monthlyRef, (currentData) => {
+                if (!currentData) currentData = {};
+                for (const [ext, stat] of Object.entries(fileTypeStats)) {
+                    if (!currentData[ext]) currentData[ext] = { count: 0, size: 0 };
+                    currentData[ext].count += stat.count;
+                    currentData[ext].size += stat.size;
+                }
+                return currentData;
+            });
+            console.log("✅ Stats Updated Successfully");
+        } catch (e) { console.error("❌ Firebase Error:", e); }
+    }
+
+    // --- CHART LOGIC ---
+    let countChart = null;
+    let sizeChart = null;
+
+    window.openStatsModal = async () => {
+        document.getElementById('resultsModal').style.display = 'flex';
+        // If manually opened, hide the "Current Batch" section unless it was just populated
+        if (!document.getElementById('resultsSummaryText').innerText.includes('files')) {
+            document.getElementById('currentSessionSummary').style.display = 'none';
+        }
+        await loadCharts();
+    }
+
+    window.closeStatsModal = () => {
+        document.getElementById('resultsModal').style.display = 'none';
+        // Reset summary visibility logic for next time
+        document.getElementById('currentSessionSummary').style.display = 'none';
+        document.getElementById('resultsSummaryText').innerText = "...";
+    }
+
+    async function loadCharts() {
+        try {
+            const snapshot = await get(ref(db, 'monthly_stats'));
+            if (!snapshot.exists()) return;
+
+            const rawData = snapshot.val(); 
+            const months = Object.keys(rawData).sort(); 
+            
+            const allTypes = new Set();
+            months.forEach(m => Object.keys(rawData[m]).forEach(t => allTypes.add(t)));
+            const types = Array.from(allTypes);
+
+            const countDatasets = [];
+            const sizeDatasets = [];
+            const colors = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#3b82f6'];
+            
+            types.forEach((type, index) => {
+                const color = colors[index % colors.length];
+                const countData = [];
+                const sizeData = [];
+
+                months.forEach(month => {
+                    const entry = rawData[month][type];
+                    countData.push(entry ? entry.count : 0);
+                    sizeData.push(entry ? entry.size : 0);
+                });
+
+                countDatasets.push({ label: type.toUpperCase(), data: countData, backgroundColor: color, stack: 'Stack 0' });
+                sizeDatasets.push({ label: type.toUpperCase(), data: sizeData, backgroundColor: color, stack: 'Stack 0' });
+            });
+
+            renderChart('countChart', countChart, months, countDatasets, 'Files');
+            renderChart('sizeChart', sizeChart, months, sizeDatasets, 'Bytes');
+
+        } catch (e) { console.error("Chart Load Error", e); }
+    }
+
+    function renderChart(canvasId, chartInstance, labels, datasets, yLabel) {
+        const ctx = document.getElementById(canvasId).getContext('2d');
+        const existingChart = Chart.getChart(canvasId);
+        if (existingChart) existingChart.destroy();
+
+        new Chart(ctx, {
+            type: 'bar',
+            data: { labels: labels, datasets: datasets },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: { grid: { display: false } },
+                    y: { beginAtZero: true, title: { display: true, text: yLabel } }
+                },
+                plugins: {
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                let label = context.dataset.label || '';
+                                if (label) label += ': ';
+                                if (yLabel === 'Bytes') {
+                                    label += formatBytes(context.parsed.y);
+                                } else {
+                                    label += context.parsed.y;
+                                }
+                                return label;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    function showSessionSummary(fileTypeStats, totalSize, totalCount) {
+        const summaryText = document.getElementById('resultsSummaryText');
+        const tbody = document.getElementById('resultsBody');
+        document.getElementById('currentSessionSummary').style.display = 'block';
+
+        summaryText.innerHTML = `${totalCount} files • ${formatBytes(totalSize)}`;
+        tbody.innerHTML = '';
+
+        const sortedExts = Object.keys(fileTypeStats).sort((a,b) => fileTypeStats[b].count - fileTypeStats[a].count);
+        sortedExts.forEach(ext => {
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td style="font-weight:bold; color:var(--primary)">.${ext.toUpperCase()}</td>
+                <td>${fileTypeStats[ext].count}</td>
+                <td>${formatBytes(fileTypeStats[ext].size)}</td>
+            `;
+            tbody.appendChild(row);
+        });
+        
+        window.openStatsModal(); 
+    }
+
+    // --- APP LOGIC ---
+    let validFiles = []; 
+    let activeViewerUrl = null;
+    const fileInput = document.getElementById('fileInput');
+    const fileList = document.getElementById('fileList');
+    const viewDashboard = document.getElementById('viewDashboard');
+    const viewFile = document.getElementById('viewFile');
+    const viewerContent = document.getElementById('viewerContent');
+    const convertBtn = document.getElementById('convertBtn');
+    const tooltip = document.getElementById('previewTooltip');
+    
+    // --- THEME TOGGLE LOGIC ---
+    const themeToggle = document.getElementById('themeToggle');
+    const sunIcon = document.getElementById('sunIcon');
+    const moonIcon = document.getElementById('moonIcon');
+
+    themeToggle.addEventListener('click', () => {
+        const html = document.documentElement;
+        const current = html.getAttribute('data-theme');
+        const next = current === 'dark' ? 'light' : 'dark';
+        html.setAttribute('data-theme', next);
+        
+        if (next === 'dark') {
+            sunIcon.style.display = 'block';
+            moonIcon.style.display = 'none';
+        } else {
+            sunIcon.style.display = 'none';
+            moonIcon.style.display = 'block';
+        }
+    });
+
+    fileInput.addEventListener('change', (e) => {
+        const raw = Array.from(e.target.files);
+        validFiles = raw.filter(f => {
+            const path = f.webkitRelativePath;
+            return !path.includes('/.git/') && 
+                   !path.includes('/.github/') && 
+                   !path.includes('/logseq/') && 
+                   !path.includes('/bak/') && 
+                   !f.name.startsWith('.');
+        }).sort((a, b) => a.webkitRelativePath.localeCompare(b.webkitRelativePath));
+        renderFileList();
+        document.getElementById('uploadText').innerHTML = `✅ <b>${validFiles.length}</b> Valid Files`;
+        convertBtn.disabled = false;
+        convertBtn.innerText = "Convert Selected";
+    });
+
+    function renderFileList() {
+        fileList.innerHTML = '';
+        validFiles.forEach((file, index) => {
+            const div = document.createElement('div');
+            div.className = 'file-item';
+            div.id = `row-${index}`;
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.className = 'file-checkbox';
+            checkbox.checked = true;
+            checkbox.id = `chk-${index}`;
+            checkbox.addEventListener('click', (e) => e.stopPropagation());
+            checkbox.addEventListener('change', updateSelectionLabel);
+            const nameSpan = document.createElement('span');
+            nameSpan.className = 'file-name';
+            nameSpan.innerText = file.webkitRelativePath.split('/').slice(1).join('/');
+            const typeSpan = document.createElement('span');
+            typeSpan.className = 'file-type';
+            const ext = file.name.split('.').pop().toUpperCase();
+            typeSpan.innerText = ext;
+            typeSpan.style.color = file.name.endsWith('.md') ? 'var(--primary)' : 'var(--tag-asset)';
+            div.appendChild(checkbox);
+            div.appendChild(nameSpan);
+            div.appendChild(typeSpan);
+            div.addEventListener('click', () => {
+                document.querySelectorAll('.file-item').forEach(el => el.classList.remove('active'));
+                div.classList.add('active');
+            });
+            div.addEventListener('dblclick', () => openViewer(index));
+            fileList.appendChild(div);
+        });
+        updateSelectionLabel();
+    }
+
+    function updateSelectionLabel() {
+        const count = validFiles.filter((_, i) => document.getElementById(`chk-${i}`).checked).length;
+        document.getElementById('selectionCount').innerText = `${count} selected`;
+        convertBtn.disabled = count === 0;
+    }
+
+    // --- CONVERSION LOGIC ---
+    convertBtn.addEventListener('click', async () => {
+        const indices = validFiles.map((_, i) => i).filter(i => document.getElementById(`chk-${i}`).checked);
+        if (!indices.length) return;
+        document.getElementById('consoleWrapper').style.display = 'flex';
+        convertBtn.disabled = true;
+        const zip = new JSZip();
+        const logWin = document.getElementById('consoleLog');
+        logWin.innerHTML = '';
+        
+        let fileTypeStats = {};
+        let totalSizeBytes = 0;
+        let mdCount = 0, assetCount = 0;
+
+        for (let i = 0; i < indices.length; i++) {
+            const idx = indices[i];
+            const file = validFiles[idx];
+            const relative = file.webkitRelativePath.split('/').slice(1).join('/');
+            document.getElementById('progressBar').style.width = Math.round(((i+1)/indices.length)*100) + "%";
+            
+            const ext = file.name.split('.').pop().toLowerCase() || "unknown";
+            if (!fileTypeStats[ext]) fileTypeStats[ext] = { count: 0, size: 0 };
+            fileTypeStats[ext].count++;
+            fileTypeStats[ext].size += file.size;
+            totalSizeBytes += file.size;
+
+            if (file.name.endsWith('.md')) {
+                try {
+                    const text = await file.text();
+                    const clean = transformLogseqToStandard(text);
+                    zip.file(relative, clean);
+                    mdCount++;
+                    log('MD', relative, clean.substring(0, 300), false, null);
+                } catch(e) { log('ERR', relative); }
+            } else {
+                zip.file(relative, file);
+                assetCount++;
+                const isImg = file.type.startsWith('image/');
+                log('ASSET', relative, null, isImg, idx);
+            }
+            document.getElementById('countMD').innerText = mdCount;
+            document.getElementById('countAsset').innerText = assetCount;
+            if (i % 20 === 0) await new Promise(r => setTimeout(r, 0));
+        }
+
+        await updateGlobalStats(fileTypeStats, totalSizeBytes, indices.length);
+        showSessionSummary(fileTypeStats, totalSizeBytes, indices.length);
+
+        const blob = await zip.generateAsync({type:"blob"});
+        saveAs(blob, "Logseq-Export.zip");
+        convertBtn.innerText = "Download Again";
+        convertBtn.disabled = false;
+        document.getElementById('statusState').innerText = "Done!";
+    });
+
+    // --- SIDEBAR HELPERS ---
+    window.toggleSelectAll = (state) => { 
+        validFiles.forEach((_, i) => document.getElementById(`chk-${i}`).checked = state); 
+        updateSelectionLabel(); 
+    };
+    window.selectMDOnly = () => { 
+        validFiles.forEach((f, i) => document.getElementById(`chk-${i}`).checked = f.name.endsWith('.md')); 
+        updateSelectionLabel(); 
+    };
+    window.selectAssetsOnly = () => { 
+        validFiles.forEach((f, i) => document.getElementById(`chk-${i}`).checked = !f.name.endsWith('.md')); 
+        updateSelectionLabel(); 
+    };
+    window.closeViewer = () => { viewFile.style.display = 'none'; viewDashboard.style.display = 'flex'; };
+
+    async function openViewer(index) {
+        const file = validFiles[index];
+        viewDashboard.style.display = 'none';
+        viewFile.style.display = 'flex';
+        document.getElementById('viewerFilename').innerText = file.name;
+        viewerContent.innerHTML = 'Loading...';
+        if(activeViewerUrl) URL.revokeObjectURL(activeViewerUrl);
+        if(file.name.endsWith('.md')) {
+            const text = await file.text();
+            viewerContent.innerHTML = `<div class="code-block">${escapeHtml(transformLogseqToStandard(text))}</div>`;
+        } else if (file.type.startsWith('image/')) {
+            activeViewerUrl = URL.createObjectURL(file);
+            viewerContent.innerHTML = `<div class="image-preview-container"><img src="${activeViewerUrl}"></div>`;
+        } else { viewerContent.innerHTML = '<div style="padding:50px; text-align:center">Binary File</div>'; }
+    }
+
+    // --- LOGGING & TOOLTIP LOGIC ---
+    function log(type, msg, previewText, isImg, index) {
+        const div = document.createElement('div');
+        div.className = 'log-row';
+        div.innerHTML = `<span class="tag ${type.toLowerCase()}">[${type}]</span> ${msg}`;
+        div.addEventListener('mouseenter', (e) => showLogPreview(e, previewText, isImg, index));
+        div.addEventListener('mousemove', moveTooltip);
+        div.addEventListener('mouseleave', hideTooltip);
+        const win = document.getElementById('consoleLog');
+        win.appendChild(div);
+        win.scrollTop = win.scrollHeight;
+    }
+
+    let tooltipBlobUrl = null;
+    function showLogPreview(e, text, isImg, index) {
+        if (!text && !isImg) return;
+        tooltip.style.display = 'block';
+        tooltip.innerHTML = ''; 
+        if (isImg && index !== null) {
+            const file = validFiles[index];
+            if(file) {
+                if(tooltipBlobUrl) URL.revokeObjectURL(tooltipBlobUrl);
+                tooltipBlobUrl = URL.createObjectURL(file);
+                tooltip.innerHTML = `<strong>Image Preview:</strong><img src="${tooltipBlobUrl}">`;
+            }
+        } else if (text) {
+            tooltip.innerHTML = `<strong>Preview:</strong>${escapeHtml(text)}`;
+        }
+        moveTooltip(e);
+    }
+
+    function hideTooltip() {
+        tooltip.style.display = 'none';
+        if (tooltipBlobUrl) { URL.revokeObjectURL(tooltipBlobUrl); tooltipBlobUrl = null; }
+    }
+
+    function moveTooltip(e) {
+        let x = e.clientX + 15;
+        let y = e.clientY + 15;
+        if (x + 400 > window.innerWidth) x = e.clientX - 415;
+        if (y + 300 > window.innerHeight) y = e.clientY - 315;
+        tooltip.style.left = x + 'px';
+        tooltip.style.top = y + 'px';
+    }
+
+    function transformLogseqToStandard(content) {
+        let lines = content.split('\n');
+        let out = [];
+        let inBlock = false;
+        for (let line of lines) {
+            if (line.match(/^\s*[\w.-]+::/)) continue;
+            if (line.match(/^\s*#\+BEGIN_/i)) { inBlock = true; continue; }
+            if (line.match(/^\s*#\+END_/i)) { inBlock = false; continue; }
+            if (inBlock) line = "> " + line.trim();
+            if (line.includes('](') && line.includes('){')) line = line.replace(/(\!\[.*?\]\(.*?\))(\{.*?\})/g, '$1');
+            line = line.replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (m, p, a) => `[${a||p}](${encodeURIComponent(p)}.md)`);
+            line = line.replace(/(^|\s)#([a-zA-Z0-9_-]+)/g, '$1[#$2]($2.md)');
+            if (line.includes('../assets/')) line = line.replace(/(\.\.\/assets\/[^)]+)/g, (p) => p.split('/').map(encodeURIComponent).join('/').replace('%2E%2E', '..'));
+            out.push(line);
+        }
+        return out.join('\n');
+    }
+
+    function escapeHtml(text) { return text ? text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;") : ""; }
+</script>
+</body>
+</html>
